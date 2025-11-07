@@ -13,7 +13,7 @@ class ApiService {
       phone = input;
     }
     final url = Uri.parse(
-      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_pruebas/ws_nexus_pruebas.php?fn=NexusDK&email=$email&phone=$phone&imei=$imei',
+      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_geo/ws_nexus_geo.php?fn=NexusDK&email=$email&phone=$phone&imei=$imei',
     );
     debugPrint('URL de login enviada: $url');
     try {
@@ -49,7 +49,7 @@ class ApiService {
     final requestParam = Uri.encodeComponent(request);
     debugPrint('Request param: $request');
     String urlStr =
-      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_pruebas/ws_nexus_pruebas.php?fn=RegistroEntrada'
+      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_geo/ws_nexus_geo.php?fn=RegistroEntrada'
       '&request=$requestParam'
       '&direccion=${Uri.encodeComponent(direccion)}'
       '&empresa=${Uri.encodeComponent(empresa)}'

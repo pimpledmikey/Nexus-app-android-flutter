@@ -43,6 +43,7 @@ class ApiService {
     String tipoHard = 'Nexus',
     String? esPendiente,
     int? tipo,
+    String? motivoFueraGeocerca,
   }) async {
     final encrypted = cadenaEncriptada ?? NexusCrypto.encryptor(cadenaEmpleado);
     final request = '$cadenaTiempo:$encrypted';
@@ -60,6 +61,9 @@ class ApiService {
     }
     if (tipo != null) {
       urlStr += '&tipo=$tipo';
+    }
+    if (motivoFueraGeocerca != null && motivoFueraGeocerca.isNotEmpty) {
+      urlStr += '&motivoFueraGeocerca=${Uri.encodeComponent(motivoFueraGeocerca)}';
     }
     final url = Uri.parse(urlStr);
     debugPrint('URL de registro enviada: $url');

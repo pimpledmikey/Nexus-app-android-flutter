@@ -16,7 +16,9 @@ import 'package:permission_handler/permission_handler.dart' as perm_handler;
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../services/registros_db_helper.dart';
+import '../services/geocerca_service.dart';
 import './_typewriter_secret_dialog.dart';
+import './_confirmacion_fuera_geocerca_dialog.dart';
 
 class RegistroRemotoScreen extends StatefulWidget {
   const RegistroRemotoScreen({super.key});
@@ -45,6 +47,11 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
   bool biometriaActivada = false;
 
+  // Variables para geocerca
+  Map<String, dynamic>? estadoGeocerca;
+  Timer? geocercaTimer;
+  bool verificandoGeocerca = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +59,7 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     _initNotifications();
     _startLocationUpdates();
     _cargarPreferenciaBiometria();
+    _iniciarVerificacionGeocerca();
     _serviceStatusStream = Geolocator.getServiceStatusStream();
     _serviceStatusSub = _serviceStatusStream!.listen((status) {
       if (status == ServiceStatus.disabled) {
@@ -343,6 +351,7 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
           ubicacionAcc: reg['ubicacion_Acc'] ?? '',
           tipoHard: reg['hadware'] ?? '',
           esPendiente: '1',
+          motivoFueraGeocerca: reg['motivoFueraGeocerca'],
         );
         debugPrint('Respuesta WS: $resp');
         if (resp['estatus'] == '1' || resp['estatus'] == null) {
@@ -417,9 +426,52 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     }
   }
 
+  void _iniciarVerificacionGeocerca() {
+    geocercaTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _verificarGeocerca();
+    });
+  }
+
+  Future<void> _verificarGeocerca() async {
+    if (verificandoGeocerca || position == null) return;
+    
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final user = userProvider.userData;
+    final empleadoID = user?['empleadoID']?.toString();
+    
+    if (empleadoID == null || empleadoID.isEmpty) return;
+    
+    setState(() {
+      verificandoGeocerca = true;
+    });
+    
+    try {
+      final resultado = await GeocercaService.verificarGeocerca(
+        empleadoID: empleadoID,
+        latitud: position!.latitude,
+        longitud: position!.longitude,
+      );
+      
+      if (mounted) {
+        setState(() {
+          estadoGeocerca = resultado;
+          verificandoGeocerca = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error verificando geocerca: $e');
+      if (mounted) {
+        setState(() {
+          verificandoGeocerca = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     locationTimer?.cancel();
+    geocercaTimer?.cancel();
     _serviceStatusSub?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
@@ -483,6 +535,11 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
         lastPositionTime = DateTime.now();
         loading = false;
       });
+      
+      // Verificar geocerca cuando se actualiza la posición
+      if (!periodic) {
+        _verificarGeocerca();
+      }
     } catch (e) {
       if (!periodic) {
         setState(() {
@@ -539,9 +596,28 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
   Future<void> _enviarRegistroRemoto(Map<String, dynamic> datos) async {
     await _vibrar();
     if (!mounted) return;
+    
+    // Verificar geocerca antes de enviar
+    String? motivoFueraGeocerca;
+    if (estadoGeocerca != null && estadoGeocerca!['validacion'] == 'Fuera') {
+      motivoFueraGeocerca = await mostrarDialogoFueraGeocerca(
+        context: context,
+        mensajeGeocerca: estadoGeocerca!['mensaje'] ?? 'Fuera de geocerca',
+      );
+      
+      if (motivoFueraGeocerca == null) {
+        // Usuario canceló
+        return;
+      }
+      
+      // Agregar motivo a los datos
+      datos['motivoFueraGeocerca'] = motivoFueraGeocerca;
+    }
+    
     setState(() { loading = true; error = null; });
     // Verificar conectividad física
-    final connectivity = await Connectivity().checkConnectivity();
+    final connectivityResults = await Connectivity().checkConnectivity();
+    final connectivity = connectivityResults.isNotEmpty ? connectivityResults.first : ConnectivityResult.none;
     // --- NUEVO: Reintentar obtener dirección hasta lograrlo o agotar intentos ---
     String direccion = datos['direccion'] ?? '';
     int intentos = 0;
@@ -641,6 +717,7 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
         ubicacionAcc: datosNormal['ubicacionAcc'],
         tipoHard: datosNormal['tipoHard'],
         esPendiente: datosNormal['esPendiente'],
+        motivoFueraGeocerca: datosNormal['motivoFueraGeocerca'],
       );
       debugPrint('Respuesta del webservice: $resp');
       if (!mounted) return;
@@ -1031,6 +1108,76 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text('Ubicación: ${position!.latitude}, ${position!.longitude}', style: theme.textTheme.bodySmall),
+                    ),
+                  // Widget de estado de zona de trabajo - minimalista
+                  if (position != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          if (verificandoGeocerca)
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  theme.colorScheme.primary,
+                                ),
+                              ),
+                            )
+                          else
+                            Icon(
+                              IconData(
+                                GeocercaService.getIconForStatus(estadoGeocerca?['validacion'] ?? 'Error'),
+                                fontFamily: 'MaterialIcons',
+                              ),
+                              size: 20,
+                              color: Color(GeocercaService.getColorForStatus(estadoGeocerca?['validacion'] ?? 'Error')),
+                            ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              verificandoGeocerca 
+                                  ? 'Verificando ubicación...'
+                                  : estadoGeocerca?['mensaje'] ?? 'Verificando zona de trabajo...',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w500,
+                                color: verificandoGeocerca 
+                                    ? theme.colorScheme.primary
+                                    : Color(GeocercaService.getColorForStatus(estadoGeocerca?['validacion'] ?? 'Error')),
+                              ),
+                            ),
+                          ),
+                          if (!verificandoGeocerca && position != null)
+                            IconButton(
+                              onPressed: _verificarGeocerca,
+                              icon: Icon(
+                                Icons.refresh_rounded,
+                                size: 18,
+                                color: theme.colorScheme.primary.withOpacity(0.7),
+                              ),
+                              tooltip: 'Actualizar estado',
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   if (advertenciaUbicacion != null)
                     Padding(

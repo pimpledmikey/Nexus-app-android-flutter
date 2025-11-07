@@ -50,7 +50,7 @@ class ApiService {
     final requestParam = Uri.encodeComponent(request);
     debugPrint('Request param: $request');
     String urlStr =
-      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_geo/ws_nexus_geo.php?fn=RegistroEntrada'
+      'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_geo/ws_nexus_geo.php?fn=RegistroRemoto'
       '&request=$requestParam'
       '&direccion=${Uri.encodeComponent(direccion)}'
       '&empresa=${Uri.encodeComponent(empresa)}'

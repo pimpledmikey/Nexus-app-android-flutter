@@ -704,6 +704,9 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       final datosNormal = Map<String, dynamic>.from(datos);
       datosNormal['esPendiente'] = '0';
       datosNormal.remove('tipo'); // Eliminar campo tipo si existe
+      if (motivoFueraGeocerca != null) {
+        datosNormal['motivoFueraGeocerca'] = motivoFueraGeocerca;
+      }
       final resp = await ApiService.registroRemoto(
         empleadoID: datosNormal['empleadoID'],
         nombre: datosNormal['nombre'],
@@ -734,30 +737,41 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
           ),
         );
       } else {
-        // Guardar con esPendiente=1
-        final datosPendiente = Map<String, dynamic>.from(datos);
-        datosPendiente['esPendiente'] = '1';
-        datosPendiente.remove('tipo'); // Eliminar campo tipo si existe
-        await _guardarRegistroPendiente(datosPendiente);
-        debugPrint('Registros pendientes guardados localmente (SQLite):');
-        for (var i = 0; i < registrosPendientes.length; i++) {
-          debugPrint('[$i] ${registrosPendientes[i]}');
+        // Error del servidor (ej: código QR expirado)
+        final mensajeError = resp['mensaje'] ?? 'Error desconocido';
+        
+        if (mensajeError.contains('expiro') || mensajeError.contains('minutos')) {
+          // Código QR expirado - guardar para reenvío posterior
+          final datosPendiente = Map<String, dynamic>.from(datos);
+          datosPendiente['esPendiente'] = '1';
+          datosPendiente.remove('tipo');
+          if (motivoFueraGeocerca != null) {
+            datosPendiente['motivoFueraGeocerca'] = motivoFueraGeocerca;
+          }
+          await _guardarRegistroPendiente(datosPendiente);
+          
+          if (!mounted) return;
+          setState(() {
+            loading = false;
+            error = null;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Código QR expirado. Registro guardado y se reenviará automáticamente.'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          // Otro tipo de error
+          if (!mounted) return;
+          setState(() {
+            loading = false;
+            error = 'Error: $mensajeError';
+          });
         }
-        if (!mounted) return;
-        setState(() {
-          loading = false;
-          error = 'No hay conexión. El registro se guardó y se enviará automáticamente cuando vuelva la red.';
-        });
-        await _showRegistroPendienteNotification();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No hay red. Registro guardado localmente (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará cuando vuelva la conexión.'),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-          ),
-        );
       }
     } catch (e) {
       debugPrint('Error al enviar registro remoto: $e');

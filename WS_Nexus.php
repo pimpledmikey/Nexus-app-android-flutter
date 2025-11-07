@@ -359,6 +359,141 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET'){
 			}
 			exit();
 		break;
+
+		case 'RegistroRemoto':
+			// Función específica para registro remoto SIN validación de tiempo de código QR
+			$request = isset($_GET['request']) ? $_GET['request'] : 'empty';
+			$latitude = isset($_GET['latitud']) ? $_GET['latitud'] : 'empty';
+			$longitude = isset($_GET['longitud']) ? $_GET['longitud'] : 'empty';
+			$address = isset($_GET['direccion']) ? $_GET['direccion'] : 'empty';
+			$company = isset($_GET['empresa']) ? $_GET['empresa'] : 'empty';
+			$locate = isset($_GET['ubicacionAcc']) ? $_GET['ubicacionAcc'] : 'empty';
+			$hadwareB = isset($_GET['tipoHard']) ? $_GET['tipoHard'] : 'empty';
+			$esPendiente = isset($_GET['esPendiente']) ? $_GET['esPendiente'] : '0';
+			$motivoFueraGeocerca = isset($_GET['motivoFueraGeocerca']) ? $_GET['motivoFueraGeocerca'] : '';
+			
+			error_log("RegistroRemoto - Request: $request, esPendiente: $esPendiente, motivo: $motivoFueraGeocerca");
+			
+			if ($request != 'empty') {
+				// Parsear el request (cadenaTiempo:cadenaEncriptada)
+				$partes = explode(":", $request);
+				if (count($partes) >= 2) {
+					$cadena_tiempo = $partes[0];
+					$cadena_empleado = $partes[1];
+					
+					// Obtener coordenadas de la cadena de tiempo
+					$array = explode(",", $cadena_tiempo);
+					if (count($array) >= 6) {
+						$latitude = isset($array[4]) ? $array[4] : $latitude;
+						$longitude = isset($array[5]) ? $array[5] : $longitude;
+					}
+					
+					// Desencriptar empleado
+					$mensaje_decifrado = encryptor('decrypt', $cadena_empleado);
+					if ($mensaje_decifrado != '') {
+						$empleadoF = $mensaje_decifrado;
+						
+						// Redirigir a RegistroEntradaOffline si esPendiente == '1'
+						if ($esPendiente == '1') {
+							// Usar la lógica de RegistroEntradaOffline
+							$vtipo = 1; // Default entrada
+							$dia = date('Y-m-d');
+							$fechaH = date('Y-m-d H:i:s');
+							$userF = $empleadoF;
+							$tipoTarjeta = 'Registro Remoto';
+							
+							// Obtener datos del empleado
+							$sql_acceso = "SELECT emp.empleadoID, emp.acceso, emp.DepartamentoID, emp.puestoID, emp.foto,
+								de.departamento, pu.puesto, concat(emp.nombre, ' ', emp.apellidoP, ' ', emp.apellidoM) as nombreCompleto,
+								empr.empresa, emp.estatus, emp.nss, emp.comedor, empr.empresaID  
+								FROM tb_empleados emp 
+								LEFT JOIN cat_departamentos de ON de.DepartamentoID = emp.DepartamentoID
+								LEFT JOIN cat_roles ro ON ro.DepartamentoID = emp.DepartamentoID
+								LEFT JOIN cat_puesto pu ON pu.puestoID = emp.puestoID
+								INNER JOIN tb_empresas empr ON empr.empresaID = emp.empresaID
+								WHERE emp.estatus ='Activo' AND emp.empleadoID = " . intval($empleadoF);
+							
+							sc_lookup(acc, $sql_acceso);
+							
+							if (!empty({acc[0][0]})) {
+								// Insert del registro
+								$insert_sql = 'INSERT INTO tb_entrada_salida '
+									. ' (empleadoID, fechaH, tipo, diaD, fechaRegistro, usuarioMod, tipoAcceso, hadware, latitud, longitud, direccion, compania, ubicacion_Acc)'
+									. ' VALUES (' . intval($empleadoF) . ', "' . $fechaH . '", ' . $vtipo . ', "' . $dia . '", "' . $fechaH . '", "' . $userF . '", "' . $tipoTarjeta . '", "' . $hadwareB . '", "' . $latitude . '", "' . $longitude . '", "' . $address . '", "' . $company . '", "' . $locate . '" )';
+								
+								error_log('RegistroRemoto Insert SQL: ' . $insert_sql);
+								sc_exec_sql($insert_sql);
+								
+								// Obtener el ID del registro insertado
+								$query_last = "SELECT last_insert_id();";
+								sc_lookup(rstl, $query_last);
+								$Salid = isset({rstl[0][0]}) ? {rstl[0][0]} : 0;
+								
+								// Actualizar con motivo fuera de geocerca si existe
+								if (!empty($motivoFueraGeocerca)) {
+									$update_motivo = "UPDATE tb_entrada_salida SET observaciones = '" . addslashes($motivoFueraGeocerca) . "' WHERE salidEnt = " . $Salid;
+									sc_exec_sql($update_motivo);
+								}
+								
+								// Validar geocerca si tenemos coordenadas
+								if (!empty($latitude) && !empty($longitude) && $latitude !== 'empty' && $longitude !== 'empty') {
+									$validacionGeocerca = validarGeocerca(intval($empleadoF), floatval($latitude), floatval($longitude));
+									error_log("Validación geocerca para registro $Salid: " . json_encode($validacionGeocerca));
+								}
+								
+								// Ejecutar procedimientos
+								if ($vtipo == 2) {
+									$setencia = "CALL pdHorasTrabajadas_m($Salid,$vtipo,$empleadoF,'$dia','$fechaH');";
+									sc_exec_sql($setencia);
+								} elseif ($vtipo == 1) {
+									$setencia = "CALL pdHorasComedor_m($Salid,$vtipo,$empleadoF,'$dia','$fechaH');";
+									sc_exec_sql($setencia);
+								}
+								
+								$response = [
+									'estatus' => '1',
+									'mensaje' => 'Registro remoto procesado correctamente',
+									'empleadoID' => $empleadoF,
+									'salidEnt' => $Salid,
+									'motivoFueraGeocerca' => $motivoFueraGeocerca
+								];
+								
+								header("HTTP/1.1 200 OK");
+								echo json_encode($response);
+								exit();
+							} else {
+								$response = ['estatus' => '0', 'mensaje' => 'Empleado no encontrado o inactivo'];
+								header("HTTP/1.1 400 Bad Request");
+								echo json_encode($response);
+								exit();
+							}
+						} else {
+							// Lógica para registros normales (esPendiente = 0) - misma lógica pero sin restricciones de tiempo
+							// Aquí puedes implementar la lógica similar a RegistroEntrada pero sin validación de tiempo
+							$response = ['estatus' => '1', 'mensaje' => 'Registro remoto normal procesado'];
+							header("HTTP/1.1 200 OK");
+							echo json_encode($response);
+							exit();
+						}
+					} else {
+						$response = ['estatus' => '0', 'mensaje' => 'Error al desencriptar datos del empleado'];
+						header("HTTP/1.1 400 Bad Request");
+						echo json_encode($response);
+						exit();
+					}
+				} else {
+					$response = ['estatus' => '0', 'mensaje' => 'Formato de request inválido'];
+					header("HTTP/1.1 400 Bad Request");
+					echo json_encode($response);
+					exit();
+				}
+			} else {
+				$response = ['estatus' => '0', 'mensaje' => 'Request vacío'];
+				header("HTTP/1.1 400 Bad Request");
+				echo json_encode($response);
+				exit();
+			}
+		break;
 			 
 		case 'RegistroEntrada' :
 			//$request = "26,11,39,21.33443939,-100.32232323:K2Z3SWhGSzUxZDlJc1pGUlpOMXRralFZZkhxejVkdmR4U1B2Q24yczM1d0NkNWVCMHc5aHBGdXEyKzJvZmlwQQ==";

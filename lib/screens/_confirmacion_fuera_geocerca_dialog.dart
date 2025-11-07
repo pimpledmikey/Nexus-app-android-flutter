@@ -52,10 +52,11 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
           Text('Fuera de tu zona'),
         ],
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Text(
             widget.mensajeGeocerca,
             style: const TextStyle(
@@ -122,6 +123,7 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
             ],
           ),
         ],
+        ),
       ),
       actions: [
         TextButton(

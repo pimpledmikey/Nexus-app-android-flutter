@@ -12,6 +12,12 @@
         android:label="Nexus MK"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        
+        <!-- Declaración requerida por Google Play - Esta app NO es herramienta de monitoreo/stalkerware -->
+        <meta-data
+            android:name="isMonitoringTool"
+            android:value="false" />
+            
         <activity
             android:name=".MainActivity"
             android:exported="true"

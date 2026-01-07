@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'registro_remoto_screen.dart';
+import 'home_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/user_provider.dart';
 
@@ -15,7 +15,12 @@ class MenuPrincipalScreen extends StatelessWidget {
     Widget avatarWidget;
     if (user != null && user['fotografia'] != null && user['fotografia'].toString().isNotEmpty) {
       try {
-        final bytes = base64Decode(user['fotografia']);
+        // Quitar prefijo data:image/xxx;base64, si existe
+        String fotoBase64 = user['fotografia'].toString();
+        if (fotoBase64.contains(',')) {
+          fotoBase64 = fotoBase64.split(',').last;
+        }
+        final bytes = base64Decode(fotoBase64);
         avatarWidget = Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
@@ -93,7 +98,7 @@ class MenuPrincipalScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const RegistroRemotoScreen(),
+                        builder: (context) => const HomeScreen(),
                       ),
                     );
                   },

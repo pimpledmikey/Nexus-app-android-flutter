@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -6,6 +9,12 @@ plugins {
 }
 
 android {
+    // Cargar propiedades de keystore si existe "android/key.properties"
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    }
     namespace = "com.pimpledmikey.nexus_goll_final"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "27.0.12077973"
@@ -32,10 +41,23 @@ android {
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+        // Configurar signing config 'release' si se proporcionaron propiedades
+        signingConfigs {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = file(keystoreProperties.getProperty("storeFile") ?: "")
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
+        }
+
+        getByName("release") {
+            // Si no existe key.properties, mantiene signing debug para desarrollo
+            try {
+                signingConfig = signingConfigs.getByName("release")
+            } catch (e: Exception) {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 }

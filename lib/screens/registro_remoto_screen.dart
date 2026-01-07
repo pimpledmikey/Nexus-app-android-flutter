@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -13,10 +14,13 @@ import 'package:lottie/lottie.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart' as perm_handler;
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../services/registros_db_helper.dart';
 import '../services/geocerca_service.dart';
+import '../services/security_service.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import './_typewriter_secret_dialog.dart';
 import './_confirmacion_fuera_geocerca_dialog.dart';
 
@@ -51,6 +55,15 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
   Map<String, dynamic>? estadoGeocerca;
   Timer? geocercaTimer;
   bool verificandoGeocerca = false;
+
+  // Cache de imagen del empleado para evitar parpadeo
+  Uint8List? _cachedFotoBytes;
+  String? _lastFotoBase64;
+
+  // Contador de intentos de GPS para mostrar botón "Registrar sin GPS"
+  int _intentosGps = 0;
+  static const int _maxIntentosParaSinGps = 5;
+  bool _reintentandoGps = false;
 
   @override
   void initState() {
@@ -210,6 +223,8 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       'hadware': reg['hadware'] ?? reg['tipoHard'] ?? 'Nexus',
       'compania': reg['compania'] ?? reg['empresa'] ?? 'DRT',
       'ubicacion_Acc': reg['ubicacion_Acc'] ?? reg['ubicacionAcc'] ?? 'Remoto',
+      // Adjuntos (paths locales) soportados para envío posterior
+      'attachments': reg['attachments'] ?? [] ,
     };
     final tieneCadenaTiempo = regCopia['cadenaTiempo']!.isNotEmpty;
     final tieneCadenaEncriptada = regCopia['cadenaEncriptada']!.isNotEmpty;
@@ -310,7 +325,10 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                     if (!envioExitoso && !envioError) ...[
                       const Text('Enviando registros pendientes', style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 16),
-                      LinearProgressIndicator(value: total == 0 ? 0 : enviados / total),
+                      SpinKitChasingDots(
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 48,
+                      ),
                       const SizedBox(height: 16),
                       Text('Enviando ${enviados + 1} de $total...'),
                     ] else if (envioExitoso) ...[
@@ -338,21 +356,43 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     try {
       for (final reg in pendientes) {
         debugPrint('[OFFLINE-WS] Enviando request: tiempo/cadena -> \x1B[34m${reg['cadenaTiempo']}\u001b[0m:${reg['cadenaEncriptada']}');
-        final resp = await ApiService.registroRemoto(
-          empleadoID: '',
-          nombre: '',
-          latitud: '',
-          longitud: '',
-          cadenaEmpleado: '',
-          cadenaTiempo: reg['cadenaTiempo'],
-          cadenaEncriptada: reg['cadenaEncriptada'],
-          direccion: reg['direccion'] ?? '',
-          empresa: reg['compania'] ?? '',
-          ubicacionAcc: reg['ubicacion_Acc'] ?? '',
-          tipoHard: reg['hadware'] ?? '',
-          esPendiente: '1',
-          motivoFueraGeocerca: reg['motivoFueraGeocerca'],
-        );
+        // Soporte para adjuntos en registros pendientes
+        final List<String> pendingAttachments = List<String>.from(reg['attachments'] ?? []);
+        Map<String, dynamic> resp;
+        if (pendingAttachments.isNotEmpty) {
+          resp = await ApiService.registroRemotoConEvidencias(
+            empleadoID: '',
+            nombre: '',
+            latitud: '',
+            longitud: '',
+            cadenaEmpleado: '',
+            cadenaTiempo: reg['cadenaTiempo'],
+            cadenaEncriptada: reg['cadenaEncriptada'],
+            direccion: reg['direccion'] ?? '',
+            empresa: reg['compania'] ?? '',
+            ubicacionAcc: reg['ubicacion_Acc'] ?? '',
+            tipoHard: reg['hadware'] ?? '',
+            esPendiente: '1',
+            motivoFueraGeocerca: reg['motivoFueraGeocerca'],
+            attachmentPaths: pendingAttachments,
+          );
+        } else {
+          resp = await ApiService.registroRemoto(
+            empleadoID: '',
+            nombre: '',
+            latitud: '',
+            longitud: '',
+            cadenaEmpleado: '',
+            cadenaTiempo: reg['cadenaTiempo'],
+            cadenaEncriptada: reg['cadenaEncriptada'],
+            direccion: reg['direccion'] ?? '',
+            empresa: reg['compania'] ?? '',
+            ubicacionAcc: reg['ubicacion_Acc'] ?? '',
+            tipoHard: reg['hadware'] ?? '',
+            esPendiente: '1',
+            motivoFueraGeocerca: reg['motivoFueraGeocerca'],
+          );
+        }
         debugPrint('Respuesta WS: $resp');
         if (resp['estatus'] == '1' || resp['estatus'] == null) {
           final db = await RegistrosDbHelper().db;
@@ -409,17 +449,35 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     if (!silencioso && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Registros enviados: $enviados / $total'),
+          content: Row(
+            children: [
+              Icon(
+                enviados == total ? Icons.check_circle : Icons.upload,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Text('Registros enviados: $enviados / $total'),
+            ],
+          ),
           backgroundColor: enviados == total ? Colors.green : Colors.orange,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
       if (registrosPendientes.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Quedaron ${registrosPendientes.length} registros pendientes por enviar.'),
+            content: Row(
+              children: [
+                const Icon(Icons.pending, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Text('Quedaron ${registrosPendientes.length} registros pendientes por enviar.'),
+              ],
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
         );
       }
@@ -432,8 +490,27 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     });
   }
 
-  Future<void> _verificarGeocerca() async {
+  Future<void> _verificarGeocerca({bool silencioso = true}) async {
     if (verificandoGeocerca || position == null) return;
+    
+    // Verificar conectividad PRIMERO para no bloquear si no hay internet
+    final connectivityResults = await Connectivity().checkConnectivity();
+    final connectivity = connectivityResults.isNotEmpty ? connectivityResults.first : ConnectivityResult.none;
+    
+    // Si no hay conexión, no intentar verificar geocerca (evita bloqueo)
+    if (connectivity == ConnectivityResult.none) {
+      debugPrint('Sin conexión - omitiendo verificación de geocerca');
+      if (estadoGeocerca == null && mounted) {
+        setState(() {
+          estadoGeocerca = {
+            'estatus': '0',
+            'validacion': 'Sin_Conexion',
+            'mensaje': 'Sin conexión para verificar zona',
+          };
+        });
+      }
+      return;
+    }
     
     final userProvider = Provider.of<UserProvider>(context, listen: false);
     final user = userProvider.userData;
@@ -441,9 +518,14 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     
     if (empleadoID == null || empleadoID.isEmpty) return;
     
-    setState(() {
-      verificandoGeocerca = true;
-    });
+    // Solo mostrar loading si no es silencioso y es la primera vez
+    if (!silencioso || estadoGeocerca == null) {
+      setState(() {
+        verificandoGeocerca = true;
+      });
+    } else {
+      verificandoGeocerca = true; // Sin setState para no parpadear
+    }
     
     try {
       final resultado = await GeocercaService.verificarGeocerca(
@@ -453,10 +535,14 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       );
       
       if (mounted) {
-        setState(() {
-          estadoGeocerca = resultado;
-          verificandoGeocerca = false;
-        });
+        // Solo actualizar UI si cambió el estado
+        final cambio = estadoGeocerca?['validacion'] != resultado['validacion'] ||
+                        estadoGeocerca?['mensaje'] != resultado['mensaje'];
+        estadoGeocerca = resultado;
+        verificandoGeocerca = false;
+        if (cambio || !silencioso) {
+          setState(() {});
+        }
       }
     } catch (e) {
       debugPrint('Error verificando geocerca: $e');
@@ -529,11 +615,19 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      // Timeout de 30 segundos (sin A-GPS puede tardar más en modo avión)
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+          .timeout(const Duration(seconds: 30), onTimeout: () {
+        debugPrint('Timeout obteniendo ubicación GPS (30s)');
+        throw Exception('Timeout GPS');
+      });
+      if (!mounted) return;
       setState(() {
         position = pos;
         lastPositionTime = DateTime.now();
         loading = false;
+        error = null; // Limpiar error si se obtuvo posición
+        _intentosGps = 0; // Resetear intentos al obtener posición exitosamente
       });
       
       // Verificar geocerca cuando se actualiza la posición
@@ -541,10 +635,17 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
         _verificarGeocerca();
       }
     } catch (e) {
+      debugPrint('Error GPS: $e');
       if (!periodic) {
         setState(() {
-          error = 'No se pudo obtener la ubicación.';
+          _intentosGps++;
+          if (_intentosGps >= _maxIntentosParaSinGps) {
+            error = 'No se pudo obtener la ubicación después de $_intentosGps intentos. Puedes registrar sin GPS.';
+          } else {
+            error = 'No se pudo obtener la ubicación (intento $_intentosGps de $_maxIntentosParaSinGps). Pulsa "Reintentar GPS" o sal al exterior.';
+          }
           loading = false;
+          _reintentandoGps = false;
         });
       }
     }
@@ -597,57 +698,25 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     await _vibrar();
     if (!mounted) return;
     
-    // Verificar geocerca antes de enviar
-    String? motivoFueraGeocerca;
-    if (estadoGeocerca != null && estadoGeocerca!['validacion'] == 'Fuera') {
-      motivoFueraGeocerca = await mostrarDialogoFueraGeocerca(
-        context: context,
-        mensajeGeocerca: estadoGeocerca!['mensaje'] ?? 'Fuera de geocerca',
-      );
-      
-      if (motivoFueraGeocerca == null) {
-        // Usuario canceló
-        return;
-      }
-      
-      // Agregar motivo a los datos
-      datos['motivoFueraGeocerca'] = motivoFueraGeocerca;
-    }
-    
     setState(() { loading = true; error = null; });
-    // Verificar conectividad física
+    
+    // ===== PASO 0: VERIFICAR CONECTIVIDAD PRIMERO (RÁPIDO) =====
+    // Esto permite guardar offline inmediatamente en modo avión
     final connectivityResults = await Connectivity().checkConnectivity();
     final connectivity = connectivityResults.isNotEmpty ? connectivityResults.first : ConnectivityResult.none;
-    // --- NUEVO: Reintentar obtener dirección hasta lograrlo o agotar intentos ---
-    String direccion = datos['direccion'] ?? '';
-    int intentos = 0;
-    const int maxIntentos = 3;
-    while ((direccion.isEmpty || direccion == 'No disponible') && datos['latitud'] != null && datos['longitud'] != null && intentos < maxIntentos) {
-      direccion = await _obtenerDireccion(
-        double.tryParse(datos['latitud'].toString()) ?? 0.0,
-        double.tryParse(datos['longitud'].toString()) ?? 0.0,
-      );
-      if (direccion == 'No disponible') {
-        await Future.delayed(const Duration(seconds: 3));
-      }
-      intentos++;
-    }
-    // Actualiza el campo dirección en datos
-    datos['direccion'] = direccion;
+    
+    // Si no hay conectividad física (modo avión), guardar offline INMEDIATAMENTE
     if (connectivity == ConnectivityResult.none) {
-      // Sin red física: guardar local y notificar
-      // Guardar con esPendiente=1
+      debugPrint('Sin conectividad física detectada - guardando offline inmediatamente');
       final datosPendiente = Map<String, dynamic>.from(datos);
       datosPendiente['esPendiente'] = '1';
-      datosPendiente.remove('tipo'); // Eliminar campo tipo si existe
+      datosPendiente.remove('tipo');
       await _guardarRegistroPendiente(datosPendiente);
-      debugPrint('Sin red física: registro guardado localmente (SQLite)');
+      
       if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = null;
-      });
+      setState(() { loading = false; error = null; });
       await _showRegistroPendienteNotification();
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -672,33 +741,249 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       );
       return;
     }
-    // Si hay red física, verificar acceso real a internet
-    final hasInternet = await _hasRealInternet();
+    
+    // Verificar acceso real a internet (con timeout corto de 3s)
+    bool hasInternet = await _hasRealInternet();
+    
+    // Si no hay internet real (ej: WiFi sin internet), guardar offline
     if (!hasInternet) {
-      // Guardar con esPendiente=1
+      debugPrint('Sin internet real detectado - guardando offline');
       final datosPendiente = Map<String, dynamic>.from(datos);
       datosPendiente['esPendiente'] = '1';
-      datosPendiente.remove('tipo'); // Eliminar campo tipo si existe
+      datosPendiente.remove('tipo');
       await _guardarRegistroPendiente(datosPendiente);
-      debugPrint('Sin internet real: registro guardado localmente (SQLite)');
+      
       if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = 'No hay internet real. El registro se guardó y se enviará automáticamente cuando vuelva la red.';
-      });
+      setState(() { loading = false; error = null; });
       await _showRegistroPendienteNotification();
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('No hay internet real. Registro guardado localmente (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará cuando vuelva la conexión.'),
-          backgroundColor: Colors.orange,
+          content: Row(
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Sin conexión a internet: registro guardado localmente (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará automáticamente.',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.orange.shade700,
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         ),
       );
       return;
     }
-    // Si hay internet real, intentar el envío remoto
+    
+    // ===== PASO 1: VERIFICACIÓN DE SEGURIDAD (solo si hay internet) =====
+    if (position != null) {
+      final securityCheck = await SecurityService.performSecurityCheck(position!);
+      final bool securityPassed = securityCheck['passed'];
+      final List<String> warnings = List<String>.from(securityCheck['warnings']);
+      final String severity = securityCheck['severity'];
+      
+      // Nivel 2: BLOQUEAR si hay VPN o GPS falso (crítico/alto)
+      if (!securityPassed && (severity == 'critical' || severity == 'high')) {
+        final bool isLocationMocked = securityCheck['checks']['locationMocked'] ?? false;
+        final bool isVpnActive = securityCheck['checks']['vpnActive'] ?? false;
+        
+        if (isLocationMocked || isVpnActive) {
+          setState(() { loading = false; });
+          
+          if (!mounted) return;
+          
+          // Mostrar diálogo de bloqueo con iconos
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.security, color: Theme.of(ctx).colorScheme.error, size: 28),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Verificación de Seguridad',
+                      style: TextStyle(fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'No se puede registrar por las siguientes razones:',
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 16),
+                  if (isLocationMocked)
+                    Row(
+                      children: [
+                        Icon(Icons.location_off, 
+                          color: Theme.of(ctx).colorScheme.error,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('GPS falso detectado'),
+                        ),
+                      ],
+                    ),
+                  if (isLocationMocked && isVpnActive)
+                    const SizedBox(height: 12),
+                  if (isVpnActive)
+                    Row(
+                      children: [
+                        Icon(Icons.vpn_key_off, 
+                          color: Theme.of(ctx).colorScheme.error,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('VPN activa detectada'),
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: Theme.of(ctx).colorScheme.onErrorContainer,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Por seguridad, desactiva estas funciones para registrar tu asistencia.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Theme.of(ctx).colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton.icon(
+                  icon: const Icon(Icons.check),
+                  label: const Text('Entendido'),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+              ],
+            ),
+          );
+          
+          return; // BLOQUEAR el registro
+        }
+      }
+      
+      // Si hay advertencias de nivel medio (root/jailbreak), solo mostrar advertencia pero permitir
+      if (!securityPassed && severity == 'medium') {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(warnings.join(", ")),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+        // Continuar con el registro pero registrar la advertencia
+      }
+    }
+    
+    // ===== PASO 2: Verificar si debe pedir motivo por geocerca =====
+    String? motivoFueraGeocerca;
+    // Verificar si es primer registro del día para determinar si pedir motivo
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final user = userProvider.userData;
+    final empleadoID = user?['empleadoID']?.toString();
+    
+    bool requierePedirMotivo = true; // Por defecto asumir que sí
+    if (empleadoID != null && empleadoID.isNotEmpty) {
+      try {
+        final tipoInfo = await GeocercaService.verificarTipoRegistro(empleadoID: empleadoID);
+        requierePedirMotivo = tipoInfo['requierePedirMotivo'] ?? true;
+        debugPrint('Tipo de registro: ${tipoInfo['estadoRegistro']}, Requiere motivo: $requierePedirMotivo');
+      } catch (e) {
+        debugPrint('Error verificando tipo de registro: $e');
+        // Mantener valor por defecto
+      }
+    }
+    
+    // Verificar geocerca y pedir motivo solo si es necesario
+    if (estadoGeocerca != null && 
+        estadoGeocerca!['validacion'] == 'Fuera' && 
+        requierePedirMotivo) {
+      
+      final resultFuera = await mostrarDialogoFueraGeocerca(
+        context: context,
+        mensajeGeocerca: estadoGeocerca!['mensaje'] ?? 'Fuera de geocerca',
+      );
+
+      if (resultFuera == null) {
+        // Usuario canceló
+        setState(() { loading = false; });
+        return;
+      }
+
+      // Extraer motivo y adjuntos
+      motivoFueraGeocerca = (resultFuera['motivo'] ?? '') as String?;
+      final List<String> attachments = List<String>.from(resultFuera['attachments'] ?? []);
+
+      // Agregar motivo y attachments a los datos
+      datos['motivoFueraGeocerca'] = motivoFueraGeocerca;
+      if (attachments.isNotEmpty) {
+        datos['attachments'] = attachments;
+      }
+    }
+    
+    // ===== PASO 3: Reintentar obtener dirección =====
+    String direccion = datos['direccion'] ?? '';
+    int intentos = 0;
+    const int maxIntentos = 3;
+    while ((direccion.isEmpty || direccion == 'No disponible') && datos['latitud'] != null && datos['longitud'] != null && intentos < maxIntentos) {
+      direccion = await _obtenerDireccion(
+        double.tryParse(datos['latitud'].toString()) ?? 0.0,
+        double.tryParse(datos['longitud'].toString()) ?? 0.0,
+      );
+      if (direccion == 'No disponible') {
+        await Future.delayed(const Duration(seconds: 3));
+      }
+      intentos++;
+    }
+    // Actualiza el campo dirección en datos
+    datos['direccion'] = direccion;
+    
+    // ===== PASO 4: Enviar registro al servidor =====
     try {
       // Envío normal: esPendiente=0
       final datosNormal = Map<String, dynamic>.from(datos);
@@ -707,21 +992,88 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       if (motivoFueraGeocerca != null) {
         datosNormal['motivoFueraGeocerca'] = motivoFueraGeocerca;
       }
-      final resp = await ApiService.registroRemoto(
-        empleadoID: datosNormal['empleadoID'],
-        nombre: datosNormal['nombre'],
-        latitud: datosNormal['latitud'],
-        longitud: datosNormal['longitud'],
-        cadenaEmpleado: datosNormal['cadenaEmpleado'],
-        cadenaTiempo: datosNormal['cadenaTiempo'],
-        cadenaEncriptada: datosNormal['cadenaEncriptada'],
-        direccion: datosNormal['direccion'],
-        empresa: datosNormal['empresa'],
-        ubicacionAcc: datosNormal['ubicacionAcc'],
-        tipoHard: datosNormal['tipoHard'],
-        esPendiente: datosNormal['esPendiente'],
-        motivoFueraGeocerca: datosNormal['motivoFueraGeocerca'],
-      );
+      
+      // Verificar si hay evidencias adjuntas para usar el método con base64
+      final List<String> attachments = List<String>.from(datos['attachments'] ?? []);
+      Map<String, dynamic> resp;
+      
+      if (attachments.isNotEmpty) {
+        // Mostrar diálogo de progreso mientras se suben evidencias
+        debugPrint('[Registro] Enviando con ${attachments.length} evidencia(s)');
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            content: Row(
+              children: [
+                const SizedBox(width: 6),
+                const CircularProgressIndicator(),
+                const SizedBox(width: 16),
+                Expanded(child: Text('Subiendo ${attachments.length} evidencia(s)...')),
+              ],
+            ),
+          ),
+        );
+
+        resp = await ApiService.registroRemotoConEvidencias(
+          empleadoID: datosNormal['empleadoID'] ?? '',
+          nombre: datosNormal['nombre'] ?? '',
+          latitud: datosNormal['latitud'] ?? '',
+          longitud: datosNormal['longitud'] ?? '',
+          cadenaEmpleado: datosNormal['cadenaEmpleado'] ?? '',
+          cadenaTiempo: datosNormal['cadenaTiempo'] ?? '',
+          cadenaEncriptada: datosNormal['cadenaEncriptada'],
+          direccion: datosNormal['direccion'] ?? '',
+          empresa: datosNormal['empresa'] ?? 'DRT',
+          ubicacionAcc: datosNormal['ubicacionAcc'] ?? 'Remoto',
+          tipoHard: datosNormal['tipoHard'] ?? 'Nexus',
+          esPendiente: datosNormal['esPendiente'],
+          motivoFueraGeocerca: datosNormal['motivoFueraGeocerca'],
+          attachmentPaths: attachments,
+        );
+
+        // Cerrar diálogo de progreso si sigue abierto
+        try {
+          if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+        } catch (_) {}
+
+        // Si se subieron evidencias, mostrar confirmación modal
+        final int evidGuardadas = (resp['evidenciasGuardadas'] is int)
+            ? resp['evidenciasGuardadas']
+            : int.tryParse((resp['evidenciasGuardadas'] ?? '0').toString()) ?? 0;
+        if (evidGuardadas > 0) {
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Evidencia cargada'),
+                content: Text('Se subieron $evidGuardadas evidencia(s) correctamente.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+                ],
+              ),
+            );
+          }
+        }
+
+      } else {
+        // Método normal GET sin evidencias
+        resp = await ApiService.registroRemoto(
+          empleadoID: datosNormal['empleadoID'],
+          nombre: datosNormal['nombre'],
+          latitud: datosNormal['latitud'],
+          longitud: datosNormal['longitud'],
+          cadenaEmpleado: datosNormal['cadenaEmpleado'],
+          cadenaTiempo: datosNormal['cadenaTiempo'],
+          cadenaEncriptada: datosNormal['cadenaEncriptada'],
+          direccion: datosNormal['direccion'],
+          empresa: datosNormal['empresa'],
+          ubicacionAcc: datosNormal['ubicacionAcc'],
+          tipoHard: datosNormal['tipoHard'],
+          esPendiente: datosNormal['esPendiente'],
+          motivoFueraGeocerca: datosNormal['motivoFueraGeocerca'],
+        );
+      }
       debugPrint('Respuesta del webservice: $resp');
       if (!mounted) return;
       if (resp['estatus'] == '1') {
@@ -729,13 +1081,63 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
         if (!mounted) return;
         // Mostrar el mensaje personalizado del backend (entrada/salida)
         final mensaje = resp['mensaje'] ?? 'Registro enviado exitosamente.';
+        
+        // Guardar en historial local
+        try {
+          final now = DateTime.now();
+          final tipoRegistro = mensaje.toLowerCase().contains('entrada') ? 'Entrada' : 'Salida';
+          await RegistrosDbHelper().insertarHistorial(
+            tipo: tipoRegistro,
+            fecha: '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}',
+            hora: '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}',
+            ubicacion: datosNormal['direccion'] ?? '',
+            dentroGeocerca: motivoFueraGeocerca == null,
+            nombreGeocerca: estadoGeocerca?['mensaje'] ?? '',
+            latitud: double.tryParse(datosNormal['latitud']?.toString() ?? '0') ?? 0,
+            longitud: double.tryParse(datosNormal['longitud']?.toString() ?? '0') ?? 0,
+            sincronizado: true,
+            estadoValidacion: motivoFueraGeocerca != null ? 'Pendiente Validación' : 'Validado',
+            motivo: motivoFueraGeocerca,
+          );
+          debugPrint('Registro guardado en historial local');
+        } catch (e) {
+          debugPrint('Error guardando en historial: $e');
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(mensaje),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(child: Text(mensaje)),
+              ],
+            ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
         );
+        // Mostrar info de evidencias si aplica
+        final int evidGuardadas = (resp['evidenciasGuardadas'] is int) ? resp['evidenciasGuardadas'] : int.tryParse((resp['evidenciasGuardadas'] ?? '0').toString()) ?? 0;
+        if (evidGuardadas > 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.photo, color: Colors.white, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Se subieron $evidGuardadas evidencia(s) con el registro.')),
+                  ],
+                ),
+                backgroundColor: Colors.blueGrey,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            );
+          }
+        }
       } else {
         // Error del servidor (ej: código QR expirado)
         final mensajeError = resp['mensaje'] ?? 'Error desconocido';
@@ -748,6 +1150,10 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
           if (motivoFueraGeocerca != null) {
             datosPendiente['motivoFueraGeocerca'] = motivoFueraGeocerca;
           }
+          // Incluir attachments si existen
+          if (datos['attachments'] != null) {
+            datosPendiente['attachments'] = List<String>.from(datos['attachments']);
+          }
           await _guardarRegistroPendiente(datosPendiente);
           
           if (!mounted) return;
@@ -758,10 +1164,19 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
           
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Código QR expirado. Registro guardado y se reenviará automáticamente.'),
+              content: Row(
+                children: [
+                  const Icon(Icons.access_time, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text('Código QR expirado. Registro guardado y se reenviará automáticamente.'),
+                  ),
+                ],
+              ),
               backgroundColor: Colors.orange,
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
           );
         } else {
@@ -789,10 +1204,19 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('No se pudo conectar. Registro guardado localmente (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará cuando vuelva la conexión.'),
+          content: Row(
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.white, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('No se pudo conectar. Registro guardado localmente (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará cuando vuelva la conexión.'),
+              ),
+            ],
+          ),
           backgroundColor: Colors.orange,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
     }
@@ -850,15 +1274,234 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
     });
   }
 
+  // Mostrar diálogo con código QR para escanear en tablet
+  void _mostrarDialogoQR(BuildContext context, ThemeData theme, Map<String, dynamic>? user) {
+    if (user == null || user['cadena'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              const Text('No se encontró la cadena del empleado'),
+            ],
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    final String cadenaQR = user['cadena'].toString();
+    final String nombreEmpleado = user['nombre']?.toString() ?? 'Empleado';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFFf8fafc),
+                Color(0xFFe0eafc),
+              ],
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Código QR',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          nombreEmpleado,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: Icon(Icons.close_rounded, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              // QR Code con sombra y borde
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withOpacity(0.15),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: QrImageView(
+                  data: cadenaQR,
+                  version: QrVersions.auto,
+                  size: MediaQuery.of(context).size.width * 0.5,
+                  backgroundColor: Colors.white,
+                  eyeStyle: QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: theme.colorScheme.primary,
+                  ),
+                  dataModuleStyle: QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Instrucciones
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: theme.colorScheme.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Escanea este código en la tablet para registrar tu asistencia',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Widget de avatar por defecto cuando no hay foto
+  Widget _buildDefaultAvatar(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withOpacity(0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: CircleAvatar(
+        radius: MediaQuery.of(context).size.width * 0.12,
+        backgroundColor: theme.colorScheme.primary,
+        child: Icon(Icons.person, size: MediaQuery.of(context).size.width * 0.12, color: theme.colorScheme.onPrimary),
+      ),
+    );
+  }
+
+  // Widget de foto del empleado con cache para evitar parpadeo
+  Widget _buildEmployeePhoto(ThemeData theme, Map<String, dynamic>? user) {
+    if (user != null && user['fotografia'] != null && user['fotografia'].toString().isNotEmpty) {
+      try {
+        // Quitar prefijo data:image/xxx;base64, si existe
+        String fotoBase64 = user['fotografia'].toString();
+        if (fotoBase64.contains(',')) {
+          fotoBase64 = fotoBase64.split(',').last;
+        }
+        
+        // Solo decodificar si la foto cambió
+        if (_lastFotoBase64 != fotoBase64 || _cachedFotoBytes == null) {
+          _cachedFotoBytes = base64Decode(fotoBase64);
+          _lastFotoBase64 = fotoBase64;
+        }
+        
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: theme.colorScheme.primary.withOpacity(0.18),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: CircleAvatar(
+            radius: MediaQuery.of(context).size.width * 0.12,
+            backgroundColor: theme.colorScheme.primary,
+            child: ClipOval(
+              child: Image.memory(
+                _cachedFotoBytes!,
+                width: MediaQuery.of(context).size.width * 0.24,
+                height: MediaQuery.of(context).size.width * 0.24,
+                fit: BoxFit.cover,
+                gaplessPlayback: true, // Evita parpadeo al reconstruir
+                errorBuilder: (context, error, stackTrace) {
+                  return Icon(
+                    Icons.person,
+                    size: MediaQuery.of(context).size.width * 0.12,
+                    color: theme.colorScheme.onPrimary,
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      } catch (e) {
+        debugPrint('ERROR decodificando base64: $e');
+        return _buildDefaultAvatar(theme);
+      }
+    } else {
+      return _buildDefaultAvatar(theme);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userProvider = Provider.of<UserProvider>(context, listen: false);
     final user = userProvider.userData;
     final theme = Theme.of(context);
 
-    return Scaffold(
-      // Fondo degradado minimalista
-      body: Container(
+    return Container(
+      // Fondo degradado minimalista (este widget está dentro de `HomeScreen` que provee el Scaffold)
+      // Evitamos anidar un Scaffold para que el `bottomNavigationBar` del `HomeScreen` no solape la UI.
+      child: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -870,30 +1513,36 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
             ],
           ),
         ),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: theme.colorScheme.primary.withOpacity(0.08),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(24),
-                    child: Icon(Icons.fingerprint, size: 80, color: theme.colorScheme.primary),
-                  ),
-                  const SizedBox(height: 32),
-                  GestureDetector(
+        child: Stack(
+          children: [
+            // Contenido principal centrado
+            SafeArea(
+              child: Center(
+                child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                    child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Detectamos layouts compactos para ajustar tamaños de botones
+                            final isCompact = constraints.maxHeight < 640;
+                            // Estimación de la altura del bottom navigation bar de la app
+                            const double navBarHeight = 64.0;
+                            final double buttonHeight = isCompact ? 44.0 : 50.0;
+                            // Usar viewPadding para capturar el inset real del sistema
+                            final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+
+                            // Usamos siempre el patrón que centra el contenido automáticamente.
+                            // Si cabe en la pantalla, queda centrado; si no cabe, se hace scroll.
+
+                            final content = Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                        // Espacio extra para centrar mejor (reducido)
+                        const SizedBox(height: 8),
+                        // Foto del empleado (con cache para evitar parpadeo)
+                        _buildEmployeePhoto(theme, user),
+                        const SizedBox(height: 20),
+                        GestureDetector(
                     onTap: () async {
                       final now = DateTime.now();
                       if (_lastEasterEggTap == null || now.difference(_lastEasterEggTap!) > Duration(seconds: 2)) {
@@ -1098,7 +1747,7 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       color: Colors.white.withOpacity(0.85),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                         child: Column(
                           children: [
                             Text('Empleado', style: theme.textTheme.labelMedium),
@@ -1111,8 +1760,8 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  if (loading) const CircularProgressIndicator(),
+                  const SizedBox(height: 12),
+                  // Quitamos el indicador de carga aquí - ahora es overlay
                   if (error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),
@@ -1123,14 +1772,14 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text('Ubicación: ${position!.latitude}, ${position!.longitude}', style: theme.textTheme.bodySmall),
                     ),
-                  // Widget de estado de zona de trabajo - minimalista
+                  // Widget de estado de zona de trabajo - actualización silenciosa
                   if (position != null)
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.9),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.05),
@@ -1141,55 +1790,51 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                       ),
                       child: Row(
                         children: [
-                          if (verificandoGeocerca)
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  theme.colorScheme.primary,
-                                ),
-                              ),
+                          // Solo mostrar loading la primera vez
+                          if (estadoGeocerca == null)
+                            SpinKitChasingDots(
+                              color: theme.colorScheme.primary,
+                              size: 26,
                             )
                           else
                             Icon(
-                              IconData(
-                                GeocercaService.getIconForStatus(estadoGeocerca?['validacion'] ?? 'Error'),
-                                fontFamily: 'MaterialIcons',
-                              ),
-                              size: 20,
+                              GeocercaService.getIconForStatus(estadoGeocerca?['validacion'] ?? 'Error'),
+                              size: 26,
                               color: Color(GeocercaService.getColorForStatus(estadoGeocerca?['validacion'] ?? 'Error')),
                             ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 14),
                           Expanded(
-                            child: Text(
-                              verificandoGeocerca 
-                                  ? 'Verificando ubicación...'
-                                  : estadoGeocerca?['mensaje'] ?? 'Verificando zona de trabajo...',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w500,
-                                color: verificandoGeocerca 
-                                    ? theme.colorScheme.primary
-                                    : Color(GeocercaService.getColorForStatus(estadoGeocerca?['validacion'] ?? 'Error')),
-                              ),
+                            child: Builder(
+                              builder: (_) {
+                                String zonaText;
+                                if (estadoGeocerca == null) {
+                                  zonaText = 'Obteniendo ubicación...';
+                                } else {
+                                  final v = (estadoGeocerca?['validacion'] ?? '').toString();
+                                  if (v == 'Fuera') {
+                                    zonaText = 'Fuera de zona';
+                                  } else if (v == 'Dentro') {
+                                    zonaText = 'En zona';
+                                  } else if (v == 'Sin_Conexion') {
+                                    zonaText = 'Sin conexión para verificar zona';
+                                  } else {
+                                    zonaText = 'Estado: ' + (estadoGeocerca?['mensaje'] ?? 'Desconocido');
+                                  }
+                                }
+
+                                return Text(
+                                  zonaText,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16,
+                                    color: estadoGeocerca == null
+                                        ? theme.colorScheme.primary
+                                        : Color(GeocercaService.getColorForStatus(estadoGeocerca?['validacion'] ?? 'Error')),
+                                  ),
+                                );
+                              },
                             ),
                           ),
-                          if (!verificandoGeocerca && position != null)
-                            IconButton(
-                              onPressed: _verificarGeocerca,
-                              icon: Icon(
-                                Icons.refresh_rounded,
-                                size: 18,
-                                color: theme.colorScheme.primary.withOpacity(0.7),
-                              ),
-                              tooltip: 'Actualizar estado',
-                              padding: const EdgeInsets.all(4),
-                              constraints: const BoxConstraints(
-                                minWidth: 32,
-                                minHeight: 32,
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -1199,113 +1844,438 @@ class _RegistroRemotoScreenState extends State<RegistroRemotoScreen> {
                       child: Text(advertenciaUbicacion!, style: TextStyle(color: theme.colorScheme.secondary)),
                     ),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          icon: const Icon(Icons.send),
-                          label: const Text('Enviar registro'),
-                          onPressed: (position != null && !loading && ubicacionReciente)
-                              ? () async {
-                                  if (biometriaActivada) {
-                                    final ok = await _autenticarBiometrico();
-                                    if (!ok) {
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Autenticación biométrica fallida o cancelada.')),
-                                        );
+                  // Agrupar los botones inferiores dentro de SafeArea para evitar solapamiento
+                  SafeArea(
+                    bottom: true,
+                    top: false,
+                    left: false,
+                    right: false,
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: bottomInset + navBarHeight + 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                icon: const Icon(Icons.send),
+                                label: const Text('Enviar registro'),
+                                onPressed: (position != null && !loading && ubicacionReciente)
+                                    ? () async {
+                                        // ===== VERIFICACIÓN DE SEGURIDAD INMEDIATA =====
+                                        debugPrint('🔒 Verificando seguridad al hacer clic en "Enviar registro"...');
+                                        
+                                        final securityCheck = await SecurityService.performSecurityCheck(position!);
+                                        final bool securityPassed = securityCheck['passed'];
+                                        final String severity = securityCheck['severity'];
+                                        
+                                        // Nivel 2: BLOQUEAR si hay VPN o GPS falso (crítico/alto)
+                                        if (!securityPassed && (severity == 'critical' || severity == 'high')) {
+                                          final bool isLocationMocked = securityCheck['checks']['locationMocked'] ?? false;
+                                          final bool isVpnActive = securityCheck['checks']['vpnActive'] ?? false;
+                                          
+                                          if (isLocationMocked || isVpnActive) {
+                                            await _vibrar();
+                                            
+                                            if (!mounted) return;
+                                            
+                                            // Mostrar diálogo de bloqueo INMEDIATO
+                                            await showDialog(
+                                              context: context,
+                                              barrierDismissible: false,
+                                              builder: (ctx) => AlertDialog(
+                                                title: Row(
+                                                  children: [
+                                                    Icon(Icons.security, color: Theme.of(ctx).colorScheme.error, size: 28),
+                                                    const SizedBox(width: 12),
+                                                    const Expanded(
+                                                      child: Text(
+                                                        'Verificación de Seguridad',
+                                                        style: TextStyle(fontSize: 18),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                content: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'No se puede registrar por las siguientes razones:',
+                                                      style: TextStyle(fontWeight: FontWeight.w500),
+                                                    ),
+                                                    const SizedBox(height: 16),
+                                                    if (isLocationMocked)
+                                                      Row(
+                                                        children: [
+                                                          Icon(Icons.location_off, 
+                                                            color: Theme.of(ctx).colorScheme.error,
+                                                            size: 20,
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          const Expanded(
+                                                            child: Text('GPS falso detectado'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    if (isLocationMocked && isVpnActive)
+                                                      const SizedBox(height: 12),
+                                                    if (isVpnActive)
+                                                      Row(
+                                                        children: [
+                                                          Icon(Icons.vpn_key_off, 
+                                                            color: Theme.of(ctx).colorScheme.error,
+                                                            size: 20,
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          const Expanded(
+                                                            child: Text('VPN activa detectada'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    const SizedBox(height: 16),
+                                                    Container(
+                                                      padding: const EdgeInsets.all(12),
+                                                      decoration: BoxDecoration(
+                                                        color: Theme.of(ctx).colorScheme.errorContainer,
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.info_outline,
+                                                            color: Theme.of(ctx).colorScheme.onErrorContainer,
+                                                            size: 20,
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Expanded(
+                                                            child: Text(
+                                                              'Por seguridad, desactiva estas funciones para registrar tu asistencia.',
+                                                              style: TextStyle(
+                                                                fontSize: 13,
+                                                                color: Theme.of(ctx).colorScheme.onErrorContainer,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                actions: [
+                                                  TextButton.icon(
+                                                    icon: const Icon(Icons.check),
+                                                    label: const Text('Entendido'),
+                                                    onPressed: () => Navigator.of(ctx).pop(),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            
+                                            debugPrint('❌ Registro bloqueado por seguridad');
+                                            return; // DETENER TODO AQUÍ
+                                          }
+                                        }
+                                        
+                                        debugPrint('✅ Verificación de seguridad pasada, continuando con registro...');
+                                        
+                                        // ===== CONTINUAR CON EL PROCESO NORMAL =====
+                                        if (biometriaActivada) {
+                                          final ok = await _autenticarBiometrico();
+                                          if (!ok) {
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Autenticación biométrica fallida o cancelada.')),
+                                              );
+                                            }
+                                            return;
+                                          }
+                                        }
+                                        await _vibrar();
+                                        final user = userProvider.userData;
+                                        if (user == null) return;
+                                        final cadenaEncriptada = user['cadena'] ?? '';
+                                        final now = DateTime.now();
+                                        final dia = now.day.toString().padLeft(2, '0');
+                                        final hora = now.hour.toString().padLeft(2, '0');
+                                        final minuto = now.minute.toString().padLeft(2, '0');
+                                        final segundo = now.second.toString().padLeft(2, '0');
+                                        final lat = position!.latitude.toString();
+                                        final lng = position!.longitude.toString();
+                                        final cadenaTiempo = '$dia,$hora,$minuto,$segundo,$lat,$lng';
+                                        final direccion = await _obtenerDireccion(position!.latitude, position!.longitude);
+                                        final datos = {
+                                          'empleadoID': user['empleadoID'].toString(),
+                                          'nombre': user['nombre'] ?? '',
+                                          'latitud': lat,
+                                          'longitud': lng,
+                                          'cadenaEmpleado': '',
+                                          'cadenaTiempo': cadenaTiempo,
+                                          'cadenaEncriptada': cadenaEncriptada,
+                                          'direccion': direccion,
+                                          'empresa': 'DRT',
+                                          'ubicacionAcc': 'Remoto',
+                                          'tipoHard': 'Nexus',
+                                        };
+                                        await _enviarRegistroRemoto(datos);
                                       }
-                                      return;
-                                    }
-                                  }
+                                    : null,
+                                style: FilledButton.styleFrom(
+                                  minimumSize: Size.fromHeight(buttonHeight),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Botón Reintentar GPS (aparece cuando falla GPS y no hemos llegado a 5 intentos)
+                        if (position == null && error != null && !loading && _intentosGps < _maxIntentosParaSinGps)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    icon: _reintentandoGps 
+                                        ? SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : const Icon(Icons.gps_fixed),
+                                    label: Text(_reintentandoGps 
+                                        ? 'Buscando GPS...' 
+                                        : 'Reintentar GPS (${_intentosGps}/$_maxIntentosParaSinGps)'),
+                                    onPressed: _reintentandoGps ? null : () async {
+                                      await _vibrar();
+                                      setState(() {
+                                        _reintentandoGps = true;
+                                        error = null;
+                                      });
+                                      // Mostrar mensaje de sugerencia
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              const Icon(Icons.lightbulb_outline, color: Colors.white),
+                                              const SizedBox(width: 12),
+                                              const Expanded(
+                                                child: Text(
+                                                  'Tip: Sal al exterior o acércate a una ventana para mejor señal GPS.',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor: Colors.blue.shade700,
+                                          behavior: SnackBarBehavior.floating,
+                                          duration: const Duration(seconds: 3),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                      );
+                                      await _obtenerGeolocalizacion();
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: Size.fromHeight(buttonHeight),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      backgroundColor: Colors.blue.shade600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        // Botón alternativo para registrar sin GPS (solo después de 5 intentos)
+                        if (position == null && error != null && !loading && _intentosGps >= _maxIntentosParaSinGps)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.cloud_off),
+                                    label: const Text('Registrar sin GPS (offline)'),
+                                    onPressed: () async {
+                                      await _vibrar();
+                                      final user = userProvider.userData;
+                                      if (user == null) return;
+                                      
+                                      // Mostrar confirmación
+                                      final confirmar = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: Row(
+                                            children: [
+                                              Icon(Icons.gps_off, color: Colors.orange),
+                                              const SizedBox(width: 12),
+                                              const Expanded(child: Text('Registrar sin ubicación')),
+                                            ],
+                                          ),
+                                          content: const Text(
+                                            'No se pudo obtener tu ubicación GPS. '
+                                            'El registro se guardará localmente y se enviará cuando vuelva la conexión y el GPS.\n\n'
+                                            '¿Deseas continuar?',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(ctx, false),
+                                              child: const Text('Cancelar'),
+                                            ),
+                                            FilledButton(
+                                              onPressed: () => Navigator.pop(ctx, true),
+                                              child: const Text('Sí, registrar'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      
+                                      if (confirmar != true) return;
+                                      
+                                      // Generar registro sin ubicación
+                                      final cadenaEncriptada = user['cadena'] ?? '';
+                                      final now = DateTime.now();
+                                      final dia = now.day.toString().padLeft(2, '0');
+                                      final hora = now.hour.toString().padLeft(2, '0');
+                                      final minuto = now.minute.toString().padLeft(2, '0');
+                                      final segundo = now.second.toString().padLeft(2, '0');
+                                      // Sin GPS: lat/lng = 0,0
+                                      final cadenaTiempo = '$dia,$hora,$minuto,$segundo,0,0';
+                                      
+                                      final datos = {
+                                        'empleadoID': user['empleadoID'].toString(),
+                                        'nombre': user['nombre'] ?? '',
+                                        'latitud': '0',
+                                        'longitud': '0',
+                                        'cadenaEmpleado': '',
+                                        'cadenaTiempo': cadenaTiempo,
+                                        'cadenaEncriptada': cadenaEncriptada,
+                                        'direccion': 'Sin GPS disponible',
+                                        'empresa': 'DRT',
+                                        'ubicacionAcc': 'Remoto',
+                                        'tipoHard': 'Nexus',
+                                        'esPendiente': '1',
+                                      };
+                                      
+                                      // Guardar directamente como pendiente
+                                      await _guardarRegistroPendiente(datos);
+                                      await _showRegistroPendienteNotification();
+                                      
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              const Icon(Icons.save, color: Colors.white),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Text(
+                                                  'Registro guardado sin GPS (#${registrosPendientes.length} pendiente${registrosPendientes.length > 1 ? 's' : ''}). Se enviará cuando vuelva la conexión.',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          backgroundColor: Colors.orange.shade700,
+                                          behavior: SnackBarBehavior.floating,
+                                          duration: const Duration(seconds: 4),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                      );
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: Size.fromHeight(buttonHeight),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      foregroundColor: Colors.orange.shade700,
+                                      side: BorderSide(color: Colors.orange.shade700),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.qr_code_2_rounded),
+                                label: const Text('Generar QR para tablet'),
+                                onPressed: () async {
                                   await _vibrar();
-                                  final user = userProvider.userData;
-                                  if (user == null) return;
-                                  final cadenaEncriptada = user['cadena'] ?? '';
-                                  final now = DateTime.now();
-                                  final dia = now.day.toString().padLeft(2, '0');
-                                  final hora = now.hour.toString().padLeft(2, '0');
-                                  final minuto = now.minute.toString().padLeft(2, '0');
-                                  final segundo = now.second.toString().padLeft(2, '0');
-                                  final lat = position!.latitude.toString();
-                                  final lng = position!.longitude.toString();
-                                  final cadenaTiempo = '$dia,$hora,$minuto,$segundo,$lat,$lng';
-                                  final direccion = await _obtenerDireccion(position!.latitude, position!.longitude);
-                                  final datos = {
-                                    'empleadoID': user['empleadoID'].toString(),
-                                    'nombre': user['nombre'] ?? '',
-                                    'latitud': lat,
-                                    'longitud': lng,
-                                    'cadenaEmpleado': '',
-                                    'cadenaTiempo': cadenaTiempo,
-                                    'cadenaEncriptada': cadenaEncriptada,
-                                    'direccion': direccion,
-                                    'empresa': 'DRT',
-                                    'ubicacionAcc': 'Remoto',
-                                    'tipoHard': 'Nexus',
-                                  };
-                                  await _enviarRegistroRemoto(datos);
-                                }
-                              : null,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                                  _mostrarDialogoQR(context, theme, user);
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: Size.fromHeight(buttonHeight),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Reintentar geolocalización'),
-                          onPressed: loading ? null : () async {
-                            await _vibrar();
-                            _obtenerGeolocalizacion(periodic: false);
-                          },
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SwitchListTile.adaptive(
+                                value: biometriaActivada,
+                                onChanged: (v) => _guardarPreferenciaBiometria(v),
+                                title: const Text('Solicitar biometría al registrar'),
+                                secondary: const Icon(Icons.fingerprint),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SwitchListTile.adaptive(
-                          value: biometriaActivada,
-                          onChanged: (v) => _guardarPreferenciaBiometria(v),
-                          title: const Text('Solicitar biometría al registrar'),
-                          secondary: const Icon(Icons.fingerprint),
-                          contentPadding: EdgeInsets.zero,
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            // Oculto el botón de registros pendientes
+                            // Expanded(
+                            //   child: OutlinedButton.icon(
+                            //     icon: const Icon(Icons.list_alt),
+                            //     label: const Text('Ver registros pendientes (debug)'),
+                            //     onPressed: ...
+                            //   ),
+                            // ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      // Oculto el botón de registros pendientes
-                      // Expanded(
-                      //   child: OutlinedButton.icon(
-                      //     icon: const Icon(Icons.list_alt),
-                      //     label: const Text('Ver registros pendientes (debug)'),
-                      //     onPressed: ...
-                      //   ),
-                      // ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                      ],
+                    ), // close inner Column (buttons)
+                  ), // close Padding
+                ), // close SafeArea
+              ], // end content children
+            ); // close content Column
+
+            // Fallback único: centrado automático con scroll cuando sea necesario.
+            // Usar viewPadding para capturar el inset real del sistema (nav bar / home indicator)
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight * 0.92),
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: bottomInset + 8),
+                  child: Center(child: content),
+                ),
               ),
-            ),
+            );
+                    }
+                  ),
           ),
+        ),
+            ),
+            // Overlay de carga con SpinKitChasingDots
+            if (loading)
+                Container(
+                  color: Colors.black.withOpacity(0.4),
+                  child: Center(
+                    child: SpinKitChasingDots(
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 60,
+                    ),
+                  ),
+                ),
+          ],
         ),
       ),
     );

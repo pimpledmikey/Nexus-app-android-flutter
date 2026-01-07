@@ -50,4 +50,9 @@ class UserProvider extends ChangeNotifier {
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
     }
   }
+
+  /// Alias de logout para compatibilidad
+  Future<void> clearUser() async {
+    await logout(null);
+  }
 }

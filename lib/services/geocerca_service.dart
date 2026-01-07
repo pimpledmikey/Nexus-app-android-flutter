@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 class GeocercaService {
   /// Verifica si un empleado está dentro de alguna geocerca asignada
@@ -70,7 +71,7 @@ class GeocercaService {
         return 'Dentro de tu zona de trabajo';
       case 'Fuera':
         if (distancia != null) {
-          return 'Fuera de tu zona (${distancia}m de distancia)';
+          return 'Fuera de tu zona (\${distancia}m de distancia)';
         }
         return 'Fuera de tu zona de trabajo';
       case 'Sin_Geocerca':
@@ -95,16 +96,67 @@ class GeocercaService {
   }
 
   /// Obtiene el icono para mostrar el estado de geocerca
-  static int getIconForStatus(String validacion) {
+  static IconData getIconForStatus(String validacion) {
     switch (validacion) {
       case 'Dentro':
-        return 0xe5ca; // Icons.location_on
+        return Icons.check_circle;
       case 'Fuera':
-        return 0xe1e8; // Icons.location_off
+        return Icons.warning_amber_rounded;
       case 'Sin_Geocerca':
-        return 0xe1e7; // Icons.location_disabled
+        return Icons.location_disabled;
+      case 'Sin_Conexion':
+        return Icons.wifi_off;
       default:
-        return 0xe1e9; // Icons.location_searching
+        return Icons.location_searching;
+    }
+  }
+
+  /// Verifica si es el primer registro del día para determinar si pedir motivo
+  static Future<Map<String, dynamic>> verificarTipoRegistro({
+    required String empleadoID,
+  }) async {
+    try {
+      final url = Uri.parse(
+        'https://dev.bsys.mx/scriptcase/app/Gilneas/ws_nexus_geo/ws_nexus_geo.php?fn=VerificarTipoRegistro'
+        '&empleadoID=$empleadoID',
+      );
+      
+      debugPrint('URL verificación tipo registro: $url');
+      
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+      debugPrint('Respuesta tipo registro: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final resultado = json.decode(response.body);
+        
+        // Si la función no existe en el servidor, asumir que sí requiere motivo
+        if (resultado['estatus'] == '0') {
+          return {
+            'estatus': '0',
+            'estadoRegistro': 'Entrada',
+            'requierePedirMotivo': true,
+          };
+        }
+        
+        return {
+          'estatus': '1',
+          'estadoRegistro': resultado['estadoRegistro'] ?? 'Entrada',
+          'requierePedirMotivo': resultado['requierePedirMotivo'] ?? true,
+        };
+      } else {
+        return {
+          'estatus': '0',
+          'estadoRegistro': 'Entrada',
+          'requierePedirMotivo': true,
+        };
+      }
+    } catch (e) {
+      debugPrint('Error verificando tipo registro: $e');
+      return {
+        'estatus': '0',
+        'estadoRegistro': 'Entrada',
+        'requierePedirMotivo': true,
+      };
     }
   }
 }

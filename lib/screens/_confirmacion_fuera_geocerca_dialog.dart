@@ -80,14 +80,81 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
       // Pedir permisos según fuente
       if (source == ImageSource.camera) {
         final status = await Permission.camera.request();
-        if (!status.isGranted) return;
+        if (status.isPermanentlyDenied) {
+          if (!mounted) return;
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Permiso de cámara necesario'),
+              content: const Text('El permiso de cámara está denegado permanentemente. Abre la configuración de la app para habilitarlo.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await openAppSettings();
+                  },
+                  child: const Text('Abrir ajustes'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+        if (!status.isGranted) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permiso de cámara denegado. Habilítalo en Ajustes para tomar fotos.')),
+          );
+          return;
+        }
       } else {
         final status = await Permission.photos.request();
-        if (!status.isGranted) return;
+        if (status.isPermanentlyDenied) {
+          if (!mounted) return;
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Permiso de fotos necesario'),
+              content: const Text('El permiso de fotos está denegado permanentemente. Abre la configuración de la app para habilitarlo.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await openAppSettings();
+                  },
+                  child: const Text('Abrir ajustes'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+        if (!status.isGranted) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permiso de fotos denegado. Habilítalo en Ajustes para seleccionar desde galería.')),
+          );
+          return;
+        }
       }
 
       final XFile? picked = await _picker.pickImage(source: source, imageQuality: 85, maxWidth: 2000);
-      if (picked == null) return;
+      if (picked == null) {
+        // Usuario canceló la cámara
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se tomó ninguna foto. Puedes intentarlo nuevamente.')),
+        );
+        return;
+      }
       final saved = await _savePickedFile(picked);
       if (saved != null) {
         setState(() {
@@ -96,6 +163,9 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
       }
     } catch (e) {
       debugPrint('Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al tomar la foto: $e')));
+      }
     }
   }
 
@@ -260,17 +330,6 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _pickImage(ImageSource.gallery),
-                        icon: const Icon(Icons.photo_library, size: 18),
-                        label: const Text('Galería'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
                 Text(
@@ -304,7 +363,7 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
           child: const Text('Cancelar', style: TextStyle(fontSize: 16)),
         ),
         ElevatedButton.icon(
-          icon: const Icon(Icons.check, size: 20),
+          icon: const Icon(Icons.check_circle, size: 22),
           onPressed: _puedeConfirmar
               ? () async {
                   // Preguntar si desea adjuntar evidencia
@@ -328,6 +387,12 @@ class _ConfirmacionFueraGeocercaDialogState extends State<ConfirmacionFueraGeoce
                     );
                     if (resp == true) {
                       setState(() => _mostrarEvidencia = true);
+                      // Abrir cámara automáticamente para tomar la evidencia
+                      try {
+                        await _pickImage(ImageSource.camera);
+                      } catch (e) {
+                        debugPrint('Error abriendo cámara automáticamente: $e');
+                      }
                       return;
                     }
                   }

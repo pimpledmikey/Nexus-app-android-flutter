@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:flutter/foundation.dart';
 
 class RegistrosDbHelper {
   static final RegistrosDbHelper _instance = RegistrosDbHelper._internal();
@@ -19,7 +20,7 @@ class RegistrosDbHelper {
     final path = join(dbPath, 'registros_pendientes.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE registros(
@@ -27,6 +28,44 @@ class RegistrosDbHelper {
             data TEXT
           )
         ''');
+        await db.execute('''
+          CREATE TABLE historial(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo TEXT,
+            fecha TEXT,
+            hora TEXT,
+            ubicacion TEXT,
+            dentroGeocerca INTEGER,
+            nombreGeocerca TEXT,
+            latitud REAL,
+            longitud REAL,
+            sincronizado INTEGER DEFAULT 0,
+            estadoValidacion TEXT DEFAULT 'Validado',
+            motivo TEXT,
+            createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS historial(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              tipo TEXT,
+              fecha TEXT,
+              hora TEXT,
+              ubicacion TEXT,
+              dentroGeocerca INTEGER,
+              nombreGeocerca TEXT,
+              latitud REAL,
+              longitud REAL,
+              sincronizado INTEGER DEFAULT 0,
+              estadoValidacion TEXT DEFAULT 'Validado',
+              motivo TEXT,
+              createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
       },
     );
   }
@@ -50,5 +89,72 @@ class RegistrosDbHelper {
   Future<void> limpiarRegistros() async {
     final database = await db;
     await database.delete('registros');
+  }
+
+  /// Inserta un registro en el historial local
+  Future<void> insertarHistorial({
+    required String tipo,
+    required String fecha,
+    required String hora,
+    String? ubicacion,
+    bool dentroGeocerca = true,
+    String? nombreGeocerca,
+    double? latitud,
+    double? longitud,
+    bool sincronizado = false,
+    String estadoValidacion = 'Validado',
+    String? motivo,
+  }) async {
+    final database = await db;
+    await database.insert('historial', {
+      'tipo': tipo,
+      'fecha': fecha,
+      'hora': hora,
+      'ubicacion': ubicacion ?? '',
+      'dentroGeocerca': dentroGeocerca ? 1 : 0,
+      'nombreGeocerca': nombreGeocerca ?? '',
+      'latitud': latitud ?? 0.0,
+      'longitud': longitud ?? 0.0,
+      'sincronizado': sincronizado ? 1 : 0,
+      'estadoValidacion': estadoValidacion,
+      'motivo': motivo,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    debugPrint('Historial insertado: \$tipo - \$fecha \$hora');
+  }
+
+  /// Obtiene el historial local con límite opcional
+  Future<List<Map<String, dynamic>>> obtenerHistorial({int? limite}) async {
+    final database = await db;
+    final res = await database.query(
+      'historial',
+      orderBy: 'createdAt DESC',
+      limit: limite,
+    );
+    return res.map((e) => {
+      'id': e['id'],
+      'tipo': e['tipo'],
+      'fecha': e['fecha'],
+      'hora': e['hora'],
+      'ubicacion': e['ubicacion'],
+      'dentroGeocerca': e['dentroGeocerca'] == 1,
+      'nombreGeocerca': e['nombreGeocerca'],
+      'latitud': e['latitud'],
+      'longitud': e['longitud'],
+      'sincronizado': e['sincronizado'] == 1,
+      'estadoValidacion': e['estadoValidacion'] ?? 'Validado',
+      'motivo': e['motivo'],
+    }).toList();
+  }
+
+  /// Marca un registro del historial como sincronizado
+  Future<void> marcarSincronizado(int id) async {
+    final database = await db;
+    await database.update(
+      'historial',
+      {'sincronizado': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

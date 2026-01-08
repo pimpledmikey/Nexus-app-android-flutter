@@ -247,115 +247,6 @@ function determinarTipoYEstadoRegistro($empleadoID) {
 
 error_log("WS_Nexus");	
 
-// ============================================================
-// HANDLER POST: SubirEvidencias (y helpers)
-// - SubirEvidencias: recibe {salidEnt, empleadoID, evidencias: [{filename, base64, mimetype}], notifyJefe:true}
-// ============================================================
-// Compatibilidad: reenviar solicitudes antiguas de SubirEvidencias al nuevo endpoint
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-	$rawPost = file_get_contents('php://input');
-	$postData = json_decode($rawPost, true);
-	if (is_array($postData) && isset($postData['fn']) && $postData['fn'] === 'SubirEvidencias') {
-		// Ejecutar el handler de evidencias dentro del contexto de ScriptCase
-		// para que las funciones sc_* estén disponibles. Preparar $postData
-		// y luego incluir el script que realiza la inserción.
-		try {
-			// Intentar varias rutas posibles donde puede estar el handler
-			$candidates = array(
-				__DIR__ . '/subir_evidencias.php', // mismo directorio
-				__DIR__ . '/../subir_evidencias/subir_evidencias.php', // carpeta hermana app/Gilneas/subir_evidencias
-			);
-
-			// Añadir ruta basada en DOCUMENT_ROOT si está disponible
-			if (!empty($_SERVER['DOCUMENT_ROOT'])) {
-				$candidates[] = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/scriptcase/app/Gilneas/subir_evidencias/subir_evidencias.php';
-			}
-
-			$included = false;
-			foreach ($candidates as $include_path) {
-				if (is_file($include_path)) {
-					error_log('WS_Nexus: incluyendo handler local de evidencias en: ' . $include_path);
-					// Incluir de forma controlada y evitar que warnings/notices impriman HTML
-					define('WS_NEXUS_INCLUDED', true);
-					// Registro temporal de warnings/notices para evitar que ScriptCase genere HTML de error
-					$prev_error_handler = set_error_handler(function($errno, $errstr, $errfile, $errline) {
-						if (in_array($errno, [E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_DEPRECATED, E_USER_DEPRECATED])) {
-							error_log("WS_Nexus include warning: $errstr in $errfile:$errline");
-							return true; // marcar como manejado
-						}
-						// dejar que PHP maneje errores fatales
-						return false;
-					});
-					ob_start();
-					include $include_path;
-					$inc_buf = ob_get_clean();
-					if (!empty($inc_buf)) {
-						error_log('WS_Nexus: include buffer fragment: ' . substr($inc_buf,0,1000));
-					}
-					// Restaurar manejador de errores
-					restore_error_handler();
-
-					// Llamar a la función si fue definida por el include
-					if (function_exists('process_subir_evidencias')) {
-						ob_start();
-						process_subir_evidencias($postData);
-						$out = ob_get_clean();
-					// Log fragment of the process output for debugging
-					error_log('WS_Nexus: process output fragment: ' . substr(($out ?? ''), 0, 1000));
-						if (!headers_sent()) header('Content-Type: application/json');
-						echo $out;
-					} else {
-						error_log('WS_Nexus: process_subir_evidencias no encontrada tras incluir ' . $include_path);
-						echo json_encode(['estatus' => '0', 'mensaje' => 'Handler de evidencias no disponible']);
-					}
-
-					$included = true;
-					break;
-				}
-			}
-
-			if (!$included) {
-				// Si no se encontró el archivo, volver al proxy HTTP remoto
-				$target = 'https://dev.bsys.mx/scriptcase/app/Gilneas/subir_evidencias/subir_evidencias.php';
-				$opts = [
-					'http' => [
-						'method'  => 'POST',
-						'header'  => "Content-Type: application/json\r\n",
-						'content' => $rawPost,
-						'timeout' => 30,
-					]
-				];
-				$context = stream_context_create($opts);
-				$result = @file_get_contents($target, false, $context);
-				if ($result === false) {
-					error_log('WS_Nexus: fallo al reenviar SubirEvidencias a ' . $target . ' (no se encontró handler local)');
-					echo json_encode(['estatus' => '0', 'mensaje' => 'Error reenviando evidencias y handler local no encontrado']);
-				} else {
-					// Si la respuesta no parece JSON, registrar un fragmento para depuración
-					$trim = trim($result);
-					if (strpos($trim, '{') !== 0 && strpos($trim, '[') !== 0) {
-						$snippet = substr($trim, 0, 512);
-						error_log('WS_Nexus: respuesta proxy no JSON (fragmento): ' . $snippet);
-						if (isset($http_response_header) && is_array($http_response_header)) {
-							error_log('WS_Nexus: proxy HTTP headers: ' . implode(' | ', $http_response_header));
-						}
-					}
-					header('Content-Type: application/json');
-					echo $result;
-				}
-			}
-		} catch (Exception $ex) {
-			error_log('WS_Nexus: excepción procesando SubirEvidencias: ' . $ex->getMessage());
-			echo json_encode(['estatus' => '0', 'mensaje' => 'Error interno procesando evidencias']);
-		}
-		exit();
-	}
-
-	// Si llega POST pero no es la función esperada, devolvemos un error genérico
-	echo json_encode(['estatus' => '0', 'mensaje' => 'Función POST no reconocida']);
-	exit();
-}
-
 if ($_SERVER['REQUEST_METHOD'] == 'GET'){
 
 	error_log("entro al primer IF GET nexus  ");	
@@ -807,8 +698,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET'){
 								'requiereValidacion' => $requiereValidacion,
 								'esPrimerRegistroDelDia' => $requierePedirMotivo,
 								'estadoValidacionGeocerca' => $estadoValidacion,
-							'salidEnt' => $Salid
-						];
+								'registro' => 'completado'
+							];
+						
+					
+				// ============================================================
+				// PASO 0: PREPARAR DATOS JEFE (ANTES DE RESPONDER - macros OK)
+				// ============================================================
+				$urlValidacion = null;
+				$jefeID = null;
+				$telefonoJefe = null;
+				$nombreJefe = null;
+				
 				if ($estadoValidacion === 'Pendiente') {
 					error_log("RegistroRemoto: Buscando jefe ANTES de responder (macros disponibles)");
 					$tiempo_jefe_inicio = microtime(true);

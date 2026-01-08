@@ -13,10 +13,10 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         
-        <!-- Declaración requerida por Google Play - Esta app NO es herramienta de monitoreo/stalkerware -->
+        <!-- Declaración requerida por Google Play - App de gestión empresarial para asistencia -->
         <meta-data
             android:name="isMonitoringTool"
-            android:value="false" />
+            android:value="enterprise_management" />
             
         <activity
             android:name=".MainActivity"

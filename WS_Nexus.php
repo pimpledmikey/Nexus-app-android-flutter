@@ -449,17 +449,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET'){
 					// $rutafotoCompleta = base64_encode(file_get_contents($rutafotoCompleta));
 				}
 				// Validación de IMEI y registro
-				// Cuenta de prueba para revisión de Google Play - NO actualizar ligado_nexus
+				// Cuenta de prueba para revisión de Google Play - NO actualizar flg_app ni ligado_nexus
 				$isTestAccount = (strtolower($emailNexus) === 'pimpledmikey@gmail.com');
 				if ($flgapp == 0) {
-					if ($emailNexus !== '' || $phoneNexus !== '') {
+					if (($emailNexus !== '' || $phoneNexus !== '') && !$isTestAccount) {
 						$update_nexus = "UPDATE tb_empleados SET flg_app = '1' WHERE empleadoID =" . $idempleado;
 						sc_exec_sql($update_nexus);
-						// Solo actualizar ligado_nexus si NO es cuenta de prueba
-						if (!$isTestAccount) {
-							$update_nexusD = "UPDATE tb_empleados SET ligado_nexus = '" . addslashes($imei) . "' WHERE empleadoID =" . $idempleado;
-							sc_exec_sql($update_nexusD);
-						}
+						$update_nexusD = "UPDATE tb_empleados SET ligado_nexus = '" . addslashes($imei) . "' WHERE empleadoID =" . $idempleado;
+						sc_exec_sql($update_nexusD);
 					}
 					$array = array(
 						'empleadoID' => $idempleado,

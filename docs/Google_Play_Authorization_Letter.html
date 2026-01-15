@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Authorization Letter - Nexus MK</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 12pt;
+            line-height: 1.6;
+            padding: 60px 80px;
+            max-width: 8.5in;
+            margin: 0 auto;
+            background: white;
+            color: #000;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 3px double #333;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .company-name {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #1a365d;
+            letter-spacing: 2px;
+        }
+        .company-info {
+            font-size: 10pt;
+            color: #444;
+            margin-top: 5px;
+        }
+        .document-title {
+            text-align: center;
+            font-size: 14pt;
+            font-weight: bold;
+            text-decoration: underline;
+            margin: 30px 0;
+            text-transform: uppercase;
+        }
+        .date {
+            text-align: right;
+            margin-bottom: 20px;
+        }
+        .recipient {
+            margin-bottom: 20px;
+        }
+        .subject {
+            margin-bottom: 20px;
+        }
+        .subject strong {
+            text-decoration: underline;
+        }
+        .content {
+            text-align: justify;
+            margin-bottom: 15px;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            text-decoration: underline;
+        }
+        .list {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+        .list li {
+            margin-bottom: 5px;
+        }
+        .signature-section {
+            margin-top: 50px;
+        }
+        .signature-line {
+            width: 250px;
+            border-top: 1px solid #000;
+            margin-top: 60px;
+            padding-top: 5px;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ccc;
+            font-size: 9pt;
+            color: #666;
+            text-align: center;
+        }
+        .highlight-box {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 10pt;
+        }
+        @media print {
+            body {
+                padding: 40px 60px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="company-name">DRT CORPORATE SYSTEMS</div>
+        <div class="company-info">Enterprise Software Development Division</div>
+        <div class="company-info">Mexico</div>
+    </div>
+
+    <div class="document-title">Enterprise Authorization Letter</div>
+
+    <div class="date">
+        <strong>Date:</strong> January 9, 2026
+    </div>
+
+    <div class="recipient">
+        <strong>To:</strong> Google Play App Review Team<br>
+        <strong>From:</strong> DRT Corporate Systems - IT Department<br>
+        <strong>Email:</strong> tisistemasdrt@gmail.com
+    </div>
+
+    <div class="subject">
+        <strong>RE: Authorization for Enterprise Employee Attendance Application</strong><br>
+        <strong>Application Name:</strong> Nexus MK<br>
+        <strong>Package Name:</strong> com.pimpledmikey.nexus_goll_final<br>
+        <strong>Version:</strong> 3.2.4 (Build 67)
+    </div>
+
+    <div class="content">
+        This letter serves as official documentation to certify that the application "Nexus MK" 
+        is a legitimate enterprise workforce management tool developed for internal corporate use.
+    </div>
+
+    <div class="section-title">1. APPLICATION PURPOSE</div>
+    <div class="content">
+        The Nexus MK application was developed exclusively for enterprise employee attendance 
+        management with the following functionality:
+    </div>
+    <ul class="list">
+        <li>Employee clock-in/clock-out with photo verification</li>
+        <li>GPS geofencing to verify employees are at designated work locations</li>
+        <li>Digital attendance history for payroll processing</li>
+        <li>Remote registration for field employees</li>
+    </ul>
+
+    <div class="section-title">2. POLICY COMPLIANCE - isMonitoringTool DECLARATION</div>
+    <div class="content">
+        We have properly implemented the required metadata declaration in ALL AndroidManifest files 
+        as per Google Play's monitoring app policy:
+    </div>
+    <div class="highlight-box">
+        &lt;meta-data<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;android:name="isMonitoringTool"<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;android:value="enterprise_management" /&gt;<br><br>
+        <em>Declared in: main/AndroidManifest.xml, debug/AndroidManifest.xml, profile/AndroidManifest.xml</em>
+    </div>
+
+    <div class="section-title">3. EMPLOYEE CONSENT AND TRANSPARENCY</div>
+    <div class="content">
+        We confirm that all employees using this application:
+    </div>
+    <ul class="list">
+        <li>Have been fully informed about the monitoring capabilities during employee onboarding</li>
+        <li>Have provided explicit consent as part of their employment agreement</li>
+        <li>Are aware that attendance and location data is collected during work hours</li>
+        <li>Can access and view their own attendance records through the application</li>
+    </ul>
+
+    <div class="section-title">4. WHY THIS APPLICATION IS NOT STALKERWARE</div>
+    <div class="content">
+        This application does NOT qualify as stalkerware because:
+    </div>
+    <ul class="list">
+        <li>It is NOT designed for covert or unauthorized surveillance</li>
+        <li>It is NOT available for public download - restricted to corporate employees only</li>
+        <li>It does NOT operate secretly - employees are fully aware of its functionality</li>
+        <li>Data collection is LIMITED to work-related purposes only</li>
+        <li>It is used by an employer to manage employees, NOT by individuals to track others without consent</li>
+    </ul>
+
+    <div class="section-title">5. TEST ACCOUNT FOR REVIEW</div>
+    <div class="content">
+        We have provided a test account for Google Play reviewers to verify the application functionality:
+    </div>
+    <div class="highlight-box">
+        <strong>Email:</strong> pimpledmikey@gmail.com<br>
+        <strong>Password:</strong> [Provided separately in app access settings]<br>
+        <strong>Note:</strong> Geofence validation is disabled for this test account to facilitate review.
+    </div>
+
+    <div class="section-title">6. DECLARATION</div>
+    <div class="content">
+        We hereby declare that the information provided in this document is true and accurate. 
+        The Nexus MK application is used solely for legitimate enterprise workforce management 
+        purposes and complies with all applicable laws and Google Play policies regarding 
+        monitoring applications.
+    </div>
+
+    <div class="content">
+        We respectfully request that our application be reviewed and reinstated on Google Play Store.
+    </div>
+
+    <div class="signature-section">
+        <div class="content">Sincerely,</div>
+        <div class="signature-line">
+            <strong>IT Systems Department</strong><br>
+            DRT Corporate Systems<br>
+            tisistemasdrt@gmail.com
+        </div>
+    </div>
+
+    <div class="footer">
+        This document was prepared for Google Play App Review purposes only.<br>
+        Document Reference: NEXUS-AUTH-2026-001 | Generated: January 9, 2026
+    </div>
+
+</body>
+</html>

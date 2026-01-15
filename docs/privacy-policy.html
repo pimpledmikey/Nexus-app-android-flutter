@@ -195,6 +195,24 @@
             <li><strong>Almacenamiento:</strong> Para guardar datos localmente en modo offline.</li>
         </ul>
 
+        <h3>7.1 Divulgación prominente y consentimiento</h3>
+        <p>Antes de solicitar permisos sensibles (por ejemplo, acceso a la ubicación o la cámara), la aplicación muestra una explicación clara y visible en pantalla que describe:</p>
+        <ul>
+            <li>Qué dato se solicita (por ejemplo, ubicación en tiempo real).</li>
+            <li>Por qué es necesario (validar que el registro se realiza dentro de una geocerca autorizada).</li>
+            <li>Cómo se usará y almacenará el dato (coordenadas adjuntas a cada registro, enviadas al servidor corporativo mediante conexiones cifradas).</li>
+            <li>Que la autenticación biométrica se procesa localmente y no se comparte.</li>
+            <li>Opciones del usuario y cómo revocar permisos desde los ajustes del dispositivo.</li>
+        </ul>
+
+        <p>Texto de ejemplo mostrado antes de pedir permiso de ubicación:</p>
+        <blockquote>
+            "Nexus Goll solicita acceso a tu ubicación para validar que tu registro se realiza desde la zona autorizada por la empresa. Las coordenadas solo se usan para este fin, se transmiten de forma cifrada y se conservan según la política interna de la empresa. Puedes cancelar en cualquier momento desde los ajustes del dispositivo."
+        </blockquote>
+
+        <h3>7.2 Sobre ubicación en segundo plano</h3>
+        <p>La aplicación <strong>no solicita</strong> permisos de ubicación en segundo plano (ACCESS_BACKGROUND_LOCATION) para su funcionamiento estándar de control de asistencia. La ubicación se obtiene cuando el usuario realiza un registro o mantiene la pantalla de registro activa. Si en el futuro se añadiera funcionalidad que requiera ubicación en segundo plano, se actualizará esta Política, se solicitará el permiso explícitamente, y se incluirá la justificación y la divulgación prominente requerida por Google Play.</p>
+
         <h2>8. Uso Corporativo</h2>
         <p>Esta aplicación es de <strong>uso exclusivo para empleados del Corporativo DRT</strong>. El uso está sujeto a:</p>
         <ul>

@@ -5,9 +5,15 @@
         android:label="Nexus MK"
         android:icon="@mipmap/ic_launcher">
 
+        <!-- Nota: Se evita marcar la app como herramienta de monitorización.
+                 Google Play puede interpretar valores como "enterprise_management"
+                 como indicio de funcionalidades de monitoring. Para reducir riesgo
+                 de rechazo, este valor se deja en "false" y se documenta la razón
+                 en el paquete de revisión. Si la app es una solución EMM/enterprise,
+                 indicarlo explícitamente en Play Console y usar Managed Google Play. -->
         <meta-data
             android:name="isMonitoringTool"
-            android:value="enterprise_management" />
+            android:value="false" />
 
         <activity
             android:name=".MainActivity"

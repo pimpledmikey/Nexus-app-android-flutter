@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="2340" viewBox="0 0 1080 2340">
+  <rect width="100%" height="100%" fill="#F5F9FF"/>
+  <rect x="60" y="760" width="960" height="380" rx="24" fill="#FFFFFF" stroke="#E6EEF8" />
+  <text x="120" y="840" font-family="Segoe UI, Roboto, Arial" font-size="36" fill="#111">Allow “Nexus Goll” to access this device's location?</text>
+  <text x="120" y="900" font-family="Segoe UI, Roboto, Arial" font-size="24" fill="#555">This lets the app verify your attendance within approved locations.</text>
+  <rect x="120" y="1060" width="360" height="64" rx="12" fill="#E6EEF8" />
+  <text x="300" y="1106" font-family="Segoe UI, Roboto, Arial" font-size="24" fill="#1565C0" text-anchor="middle">Deny</text>
+  <rect x="660" y="1060" width="300" height="64" rx="12" fill="#1565C0" />
+  <text x="810" y="1106" font-family="Segoe UI, Roboto, Arial" font-size="24" fill="#fff" text-anchor="middle">Allow</text>
+  <text x="120" y="980" font-family="Segoe UI, Roboto, Arial" font-size="18" fill="#777">Permission required · App settings</text>
+</svg>

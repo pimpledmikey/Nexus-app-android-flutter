@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="2340" viewBox="0 0 1080 2340">
+  <rect width="100%" height="100%" fill="#F5F9FF"/>
+  <rect x="60" y="160" width="960" height="560" rx="28" fill="#FFFFFF" stroke="#E6EEF8" />
+  <text x="120" y="250" font-family="Segoe UI, Roboto, Arial" font-size="42" fill="#0F4C81">Acceso a la ubicación</text>
+  <text x="120" y="330" font-family="Segoe UI, Roboto, Arial" font-size="28" fill="#333">Nexus Goll solicita acceso a tu ubicación para verificar que tu registro se realiza desde la zona autorizada.</text>
+  <text x="120" y="380" font-family="Segoe UI, Roboto, Arial" font-size="24" fill="#555">Las coordenadas se transmiten cifradas y se usan solo para validar asistencia.</text>
+  <rect x="120" y="460" width="840" height="64" rx="12" fill="#1565C0" />
+  <text x="540" y="506" font-family="Segoe UI, Roboto, Arial" font-size="28" fill="#FFF" text-anchor="middle">Aceptar y continuar</text>
+  <rect x="120" y="540" width="840" height="64" rx="12" fill="#FFFFFF" stroke="#CCC" />
+  <text x="540" y="586" font-family="Segoe UI, Roboto, Arial" font-size="28" fill="#1565C0" text-anchor="middle">Cancelar</text>
+  <g transform="translate(120,660)">
+    <rect width="840" height="160" rx="12" fill="#fff0" />
+    <text x="0" y="30" font-family="Segoe UI, Roboto, Arial" font-size="20" fill="#666">Ejemplo de texto que debe usarse en la pantalla previa al permiso. Incluye propósito y enlace a la política de privacidad.</text>
+  </g>
+</svg>

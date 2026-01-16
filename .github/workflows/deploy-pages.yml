@@ -8,9 +8,20 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show docs directory (diagnostic)
+        run: |
+          echo "Current directory: $(pwd)"
+          ls -la
+          echo "docs dir listing:" || true
+          ls -la docs || true
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

@@ -13,7 +13,7 @@
                  indicarlo explícitamente en Play Console y usar Managed Google Play. -->
         <meta-data
             android:name="isMonitoringTool"
-            android:value="false" />
+            android:value="enterprise_management" />
 
         <activity
             android:name=".MainActivity"

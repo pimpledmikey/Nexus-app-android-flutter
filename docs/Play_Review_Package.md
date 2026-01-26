@@ -7,7 +7,7 @@ Resumen para el revisor
 - Nombre de la app: Nexus (com.pimpledmikey.nexus_goll_final)
 - Propietario/Empresa: Corporativo DRT
 - Propósito principal del uso de la ubicación: Validación de registros de asistencia dentro de geocercas autorizadas.
-- Estado actual: Se ha actualizado la Política de Privacidad y se proveen divulgación prominente y textos justificativos para la revisión.
+- Estado actual: Se ha actualizado la Política de Privacidad, se declaró `isMonitoringTool="enterprise_management"` en `android/app/src/main/AndroidManifest.xml` y se añadió la misma marca en las variantes `debug` y `profile`. Se proveen divulgación prominente y textos justificativos para la revisión.
 
 Archivos incluidos en este paquete
 ---------------------------------
@@ -62,7 +62,7 @@ Notas operativas para el equipo de desarrollo / release
 1. Asegurarse de que `versionCode` y `versionName` sean incrementados antes de subir el nuevo AAB.
 2. Subir el AAB en el mismo track donde estaba la versión retirada (por ejemplo, producción) y hacer rollout al 100% después de `Send for review`.
 3. Completar el formulario Data Safety en Play Console describiendo recolección de ubicación, imágenes y datos de contacto.
-4. Revisar `AndroidManifest.xml` y eliminar o documentar cualquier meta-data que pueda hacer que Play considere la app como "monitoring tool". Si la app es una solución EMM/enterprise, indicar distribución por Managed Google Play.
+4. Declarar en `AndroidManifest.xml` la marca `isMonitoringTool="enterprise_management"` (ya incluida en esta versión). Además, hemos añadido la misma marca en las variantes `debug` y `profile` para asegurar que la cadena esté presente en todas las versiones. Adjunta a la revisión: manifest fusionado (build/app/intermediates/packaged_manifests/release/processReleaseManifestForPackage/AndroidManifest.xml) y la huella SHA1 del certificado de firma (82:A7:3B:0B:03:...:7E:76).
 
 Contacto
 --------
